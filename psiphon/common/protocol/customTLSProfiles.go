@@ -52,7 +52,6 @@ type ALPNExtensionCompat utls.ALPNExtension
 type SCTExtensionCompat utls.SCTExtension
 type SessionTicketExtensionCompat utls.SessionTicketExtension
 type GenericExtensionCompat utls.GenericExtension
-type UtlsExtendedMasterSecretExtensionCompat utls.UtlsExtendedMasterSecretExtension
 type UtlsGREASEExtensionCompat utls.UtlsGREASEExtension
 type UtlsPaddingExtensionCompat utls.UtlsPaddingExtension
 type PSKKeyExchangeModesExtensionCompat utls.PSKKeyExchangeModesExtension
@@ -216,7 +215,7 @@ func (e *UTLSExtension) GetUTLSExtension() (utls.TLSExtension, error) {
 		extension := utls.GenericExtension(compat)
 		return &extension, nil
 	case "ExtendedMasterSecret":
-		return &utls.UtlsExtendedMasterSecretExtension{}, nil
+		return nil, nil
 	case "GREASE":
 		return &utls.UtlsGREASEExtension{}, nil
 	case "BoringPadding":
