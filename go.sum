@@ -28,6 +28,8 @@ github.com/astaguna/quic-go v0.0.0-20231019162731-f1d472acb8da h1:iWCq/rxhZdijBQ
 github.com/astaguna/quic-go v0.0.0-20231019162731-f1d472acb8da/go.mod h1:8F3PmBShwA996AwoLbTNUyO0pq6ekDnz3nBhZT0lY9A=
 github.com/astaguna/quic-go v0.0.0-20231019163422-00e3af7f9d1a h1:LGQfSBRVc1D8r+sp5/gDad7Qvv6tn4cu5CvYipF1ue8=
 github.com/astaguna/quic-go v0.0.0-20231019163422-00e3af7f9d1a/go.mod h1:Bkl942Eu9niDRzBhhO6WUDcu2O/CEf97uENx/fm05JE=
+github.com/astaguna/quic-go v0.0.0-20231019163821-7e3a209c62c5 h1:NRi6NsNh7AqO8d/ijPEy3+OODQPGYDqQpOw4ACCvc3w=
+github.com/astaguna/quic-go v0.0.0-20231019163821-7e3a209c62c5/go.mod h1:LvHBCm9/3NkYjsu7m86opmfJ0Zc3iN7rhNSR0syyia8=
 github.com/astaguna/tls-tris v0.0.0-20231018220855-35fe37adab94 h1:siCNSxIAD1PM2IFeALL55dZYKgCs2AORP61G9VxQDsg=
 github.com/astaguna/tls-tris v0.0.0-20231018220855-35fe37adab94/go.mod h1:H2I+AcmPlEcRJPJciA5oCFDOL+CT7REdn7naKhRKT3Q=
 github.com/bifurcation/mint v0.0.0-20180306135233-198357931e61 h1:BU+NxuoaYPIvvp8NNkNlLr8aA0utGyuunf4Q3LJ0bh0=
