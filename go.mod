@@ -1,6 +1,6 @@
 module github.com/astaguna/popon-core
 
-go 1.21
+go 1.20
 
 // When this is the main module, use a patched version of
 // refraction/gotapdance with
@@ -19,7 +19,7 @@ require (
 	github.com/Psiphon-Labs/bolt v0.0.0-20200624191537-23cedaef7ad7
 	github.com/Psiphon-Labs/goptlib v0.0.0-20200406165125-c0e32a7a3464
 	github.com/armon/go-proxyproto v0.0.0-20180202201750-5b7edb60ff5f
-	github.com/astaguna/quic-go v0.0.0-20231019163821-7e3a209c62c5
+	github.com/astaguna/quic-go v0.0.0-20231019221702-af097b6b640f
 	github.com/astaguna/tls-tris v0.0.0-20231018220855-35fe37adab94
 	github.com/bifurcation/mint v0.0.0-20180306135233-198357931e61
 	github.com/cheekybits/genny v0.0.0-20170328200008-9127e812e1e9
@@ -62,7 +62,6 @@ require (
 	github.com/andybalholm/brotli v1.0.5 // indirect
 	github.com/astaguna/qtls-go1-19 v0.0.0-20231018221331-0dae180cdd3b // indirect
 	github.com/astaguna/qtls-go1-20 v0.0.0-20231018221339-9c208fa4fb26 // indirect
-	github.com/astaguna/qtls-go1-21 v0.0.0-20231019163213-dd46f9c82ebd // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dchest/siphash v1.2.3-0.20201109081723-a21c2e7914a8 // indirect
 	github.com/dgryski/go-farm v0.0.0-20180109070241-2de33835d102 // indirect

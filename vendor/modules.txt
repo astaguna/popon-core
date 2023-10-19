@@ -32,10 +32,7 @@ github.com/astaguna/qtls-go1-19
 # github.com/astaguna/qtls-go1-20 v0.0.0-20231018221339-9c208fa4fb26
 ## explicit; go 1.20
 github.com/astaguna/qtls-go1-20
-# github.com/astaguna/qtls-go1-21 v0.0.0-20231019163213-dd46f9c82ebd
-## explicit; go 1.21
-github.com/astaguna/qtls-go1-21
-# github.com/astaguna/quic-go v0.0.0-20231019163422-00e3af7f9d1a
+# github.com/astaguna/quic-go v0.0.0-20231019221702-af097b6b640f
 ## explicit; go 1.20
 github.com/astaguna/quic-go
 github.com/astaguna/quic-go/http3
