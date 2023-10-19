@@ -1,6 +1,6 @@
 module github.com/astaguna/popon-core
 
-go 1.20
+go 1.19
 
 // When this is the main module, use a patched version of
 // refraction/gotapdance with
