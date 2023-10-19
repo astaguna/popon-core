@@ -37,8 +37,8 @@ func ExtensionFromID(id uint16) TLSExtension {
 		return &SCTExtension{}
 	case utlsExtensionPadding:
 		return &UtlsPaddingExtension{}
-	case extensionExtendedMasterSecret:
-		return &ExtendedMasterSecretExtension{}
+	case utlsExtensionExtendedMasterSecret:
+		return &UtlsExtendedMasterSecretExtension{}
 	case fakeExtensionTokenBinding:
 		return &FakeTokenBindingExtension{}
 	case utlsExtensionCompressCertificate:
@@ -47,7 +47,7 @@ func ExtensionFromID(id uint16) TLSExtension {
 		return &FakeDelegatedCredentialsExtension{}
 	case extensionSessionTicket:
 		return &SessionTicketExtension{}
-	case extensionPreSharedKey:
+	case fakeExtensionPreSharedKey:
 		return &FakePreSharedKeyExtension{}
 	// case extensionEarlyData:
 	// 	return &EarlyDataExtension{}
@@ -63,8 +63,6 @@ func ExtensionFromID(id uint16) TLSExtension {
 		return &SignatureAlgorithmsCertExtension{}
 	case extensionKeyShare:
 		return &KeyShareExtension{}
-	case extensionQUICTransportParameters:
-		return &QUICTransportParametersExtension{}
 	case extensionNextProtoNeg:
 		return &NPNExtension{}
 	case utlsExtensionApplicationSettings:
@@ -100,11 +98,8 @@ type TLSExtension interface {
 type TLSExtensionWriter interface {
 	TLSExtension
 
-	// Write writes the extension data as a byte slice, up to len(b) bytes from b.
+	// Write writes up to len(b) bytes from b.
 	// It returns the number of bytes written (0 <= n <= len(b)) and any error encountered.
-	//
-	// The implementation MUST NOT silently drop data if consumed less than len(b) bytes,
-	// instead, it MUST return an error.
 	Write(b []byte) (n int, err error)
 }
 
@@ -807,15 +802,15 @@ type SessionTicketExtension struct {
 
 func (e *SessionTicketExtension) writeToUConn(uc *UConn) error {
 	if e.Session != nil {
-		uc.HandshakeState.Session = e.Session.session
-		uc.HandshakeState.Hello.SessionTicket = e.Session.ticket
+		uc.HandshakeState.Session = e.Session
+		uc.HandshakeState.Hello.SessionTicket = e.Session.sessionTicket
 	}
 	return nil
 }
 
 func (e *SessionTicketExtension) Len() int {
 	if e.Session != nil {
-		return 4 + len(e.Session.ticket)
+		return 4 + len(e.Session.sessionTicket)
 	}
 	return 4
 }
@@ -832,7 +827,7 @@ func (e *SessionTicketExtension) Read(b []byte) (int, error) {
 	b[2] = byte(extBodyLen >> 8)
 	b[3] = byte(extBodyLen)
 	if extBodyLen > 0 {
-		copy(b[4:], e.Session.ticket)
+		copy(b[4:], e.Session.sessionTicket)
 	}
 	return e.Len(), io.EOF
 }
@@ -896,45 +891,42 @@ func (e *GenericExtension) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// ExtendedMasterSecretExtension implements extended_master_secret (23)
-//
-// Was named as ExtendedMasterSecretExtension, renamed due to crypto/tls
-// implemented this extension's support.
-type ExtendedMasterSecretExtension struct {
+// UtlsExtendedMasterSecretExtension implements extended_master_secret (23)
+type UtlsExtendedMasterSecretExtension struct {
 }
 
 // TODO: update when this extension is implemented in crypto/tls
 // but we probably won't have to enable it in Config
-func (e *ExtendedMasterSecretExtension) writeToUConn(uc *UConn) error {
+func (e *UtlsExtendedMasterSecretExtension) writeToUConn(uc *UConn) error {
 	uc.HandshakeState.Hello.Ems = true
 	return nil
 }
 
-func (e *ExtendedMasterSecretExtension) Len() int {
+func (e *UtlsExtendedMasterSecretExtension) Len() int {
 	return 4
 }
 
-func (e *ExtendedMasterSecretExtension) Read(b []byte) (int, error) {
+func (e *UtlsExtendedMasterSecretExtension) Read(b []byte) (int, error) {
 	if len(b) < e.Len() {
 		return 0, io.ErrShortBuffer
 	}
 	// https://tools.ietf.org/html/rfc7627
-	b[0] = byte(extensionExtendedMasterSecret >> 8)
-	b[1] = byte(extensionExtendedMasterSecret)
+	b[0] = byte(utlsExtensionExtendedMasterSecret >> 8)
+	b[1] = byte(utlsExtensionExtendedMasterSecret)
 	// The length is 0
 	return e.Len(), io.EOF
 }
 
-func (e *ExtendedMasterSecretExtension) UnmarshalJSON(_ []byte) error {
+func (e *UtlsExtendedMasterSecretExtension) UnmarshalJSON(_ []byte) error {
 	return nil // no-op
 }
 
-func (e *ExtendedMasterSecretExtension) Write(_ []byte) (int, error) {
+func (e *UtlsExtendedMasterSecretExtension) Write(_ []byte) (int, error) {
 	// https://tools.ietf.org/html/rfc7627
 	return 0, nil
 }
 
-// var extendedMasterSecretLabel = []byte("extended master secret")
+var extendedMasterSecretLabel = []byte("extended master secret")
 
 // extendedMasterFromPreMasterSecret generates the master secret from the pre-master
 // secret and session hash. See https://tools.ietf.org/html/rfc7627#section-4
@@ -1303,44 +1295,6 @@ func (e *KeyShareExtension) UnmarshalJSON(b []byte) error {
 			return fmt.Errorf("unknown group %s", clientShare.Group)
 		}
 	}
-	return nil
-}
-
-// QUICTransportParametersExtension implements quic_transport_parameters (57).
-//
-// Currently, it works as a fake extension and does not support parsing, since
-// the QUICConn provided by this package does not really understand these
-// parameters.
-type QUICTransportParametersExtension struct {
-	TransportParameters TransportParameters
-
-	marshalResult []byte // TransportParameters will be marshaled into this slice
-}
-
-func (e *QUICTransportParametersExtension) Len() int {
-	if e.marshalResult == nil {
-		e.marshalResult = e.TransportParameters.Marshal()
-	}
-	return 4 + len(e.marshalResult)
-}
-
-func (e *QUICTransportParametersExtension) Read(b []byte) (int, error) {
-	if len(b) < e.Len() {
-		return 0, io.ErrShortBuffer
-	}
-
-	b[0] = byte(extensionQUICTransportParameters >> 8)
-	b[1] = byte(extensionQUICTransportParameters)
-	// e.Len() is called before so that e.marshalResult is set
-	b[2] = byte((len(e.marshalResult)) >> 8)
-	b[3] = byte(len(e.marshalResult))
-	copy(b[4:], e.marshalResult)
-
-	return e.Len(), io.EOF
-}
-
-func (e *QUICTransportParametersExtension) writeToUConn(*UConn) error {
-	// no need to set *UConn.quic.transportParams, since it is unused
 	return nil
 }
 
@@ -1908,7 +1862,7 @@ func (e *FakePreSharedKeyExtension) writeToUConn(uc *UConn) error {
 	if uc.config.ClientSessionCache == nil {
 		return nil // don't write the extension if there is no session cache
 	}
-	if session, ok := uc.config.ClientSessionCache.Get(uc.clientSessionCacheKey()); !ok || session == nil {
+	if session, ok := uc.config.ClientSessionCache.Get(clientSessionCacheKey(uc.conn.RemoteAddr(), uc.config)); !ok || session == nil {
 		return nil // don't write the extension if there is no session cache available for this session
 	}
 	uc.HandshakeState.Hello.PskIdentities = e.PskIdentities

@@ -16,6 +16,7 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"sync/atomic"
 )
 
 type UConn struct {
@@ -76,13 +77,13 @@ func (uconn *UConn) BuildHandshakeState() error {
 		}
 
 		// use default Golang ClientHello.
-		hello, ecdheKey, err := uconn.makeClientHello()
+		hello, ecdheParams, err := uconn.makeClientHello()
 		if err != nil {
 			return err
 		}
 
 		uconn.HandshakeState.Hello = hello.getPublicPtr()
-		uconn.HandshakeState.State13.EcdheKey = ecdheKey
+		uconn.HandshakeState.State13.EcdheParams = ecdheParams
 		uconn.HandshakeState.C = uconn.Conn
 	} else {
 		if !uconn.ClientHelloBuilt {
@@ -113,10 +114,10 @@ func (uconn *UConn) BuildHandshakeState() error {
 // but the extension itself still MAY be present for mimicking purposes.
 // Session tickets to be reused - use same cache on following connections.
 func (uconn *UConn) SetSessionState(session *ClientSessionState) error {
+	uconn.HandshakeState.Session = session
 	var sessionTicket []uint8
 	if session != nil {
-		sessionTicket = session.ticket
-		uconn.HandshakeState.Session = session.session
+		sessionTicket = session.sessionTicket
 	}
 	uconn.HandshakeState.Hello.TicketSupported = true
 	uconn.HandshakeState.Hello.SessionTicket = sessionTicket
@@ -181,7 +182,7 @@ func (uconn *UConn) SetSNI(sni string) {
 // It returns an error when used with HelloGolang ClientHelloID
 func (uconn *UConn) RemoveSNIExtension() error {
 	if uconn.ClientHelloID == HelloGolang {
-		return fmt.Errorf("cannot call RemoveSNIExtension on a UConn with a HelloGolang ClientHelloID")
+		return fmt.Errorf("Cannot call RemoveSNIExtension on a UConn with a HelloGolang ClientHelloID")
 	}
 	uconn.omitSNIExtension = true
 	return nil
@@ -220,7 +221,7 @@ func (c *UConn) handshakeContext(ctx context.Context) (ret error) {
 	// Fast sync/atomic-based exit if there is no handshake in flight and the
 	// last one succeeded without an error. Avoids the expensive context setup
 	// and mutex for most Read and Write calls.
-	if c.isHandshakeComplete.Load() {
+	if c.handshakeComplete() {
 		return nil
 	}
 
@@ -235,10 +236,7 @@ func (c *UConn) handshakeContext(ctx context.Context) (ret error) {
 	//
 	// The interrupter goroutine waits for the input context to be done and
 	// closes the connection if this happens before the function returns.
-	if c.quic != nil {
-		c.quic.cancelc = handshakeCtx.Done()
-		c.quic.cancel = cancel
-	} else if ctx.Done() != nil {
+	if ctx.Done() != nil {
 		done := make(chan struct{})
 		interruptRes := make(chan error, 1)
 		defer func() {
@@ -266,7 +264,7 @@ func (c *UConn) handshakeContext(ctx context.Context) (ret error) {
 	if err := c.handshakeErr; err != nil {
 		return err
 	}
-	if c.isHandshakeComplete.Load() {
+	if c.handshakeComplete() {
 		return nil
 	}
 
@@ -290,35 +288,8 @@ func (c *UConn) handshakeContext(ctx context.Context) (ret error) {
 		c.flush()
 	}
 
-	if c.handshakeErr == nil && !c.isHandshakeComplete.Load() {
+	if c.handshakeErr == nil && !c.handshakeComplete() {
 		c.handshakeErr = errors.New("tls: internal error: handshake should have had a result")
-	}
-	if c.handshakeErr != nil && c.isHandshakeComplete.Load() {
-		panic("tls: internal error: handshake returned an error but is marked successful")
-	}
-
-	if c.quic != nil {
-		if c.handshakeErr == nil {
-			c.quicHandshakeComplete()
-			// Provide the 1-RTT read secret now that the handshake is complete.
-			// The QUIC layer MUST NOT decrypt 1-RTT packets prior to completing
-			// the handshake (RFC 9001, Section 5.7).
-			c.quicSetReadSecret(QUICEncryptionLevelApplication, c.cipherSuite, c.in.trafficSecret)
-		} else {
-			var a alert
-			c.out.Lock()
-			if !errors.As(c.out.err, &a) {
-				a = alertInternalError
-			}
-			c.out.Unlock()
-			// Return an error which wraps both the handshake error and
-			// any alert error we may have sent, or alertInternalError
-			// if we didn't send an alert.
-			// Truncate the text of the alert to 0 characters.
-			c.handshakeErr = fmt.Errorf("%w%.0w", c.handshakeErr, AlertError(a))
-		}
-		close(c.quic.blockedc)
-		close(c.quic.signalc)
 	}
 
 	return c.handshakeErr
@@ -329,12 +300,12 @@ func (c *UConn) handshakeContext(ctx context.Context) (ret error) {
 func (c *UConn) Write(b []byte) (int, error) {
 	// interlock with Close below
 	for {
-		x := c.activeCall.Load()
+		x := atomic.LoadInt32(&c.activeCall)
 		if x&1 != 0 {
 			return 0, net.ErrClosed
 		}
-		if c.activeCall.CompareAndSwap(x, x+2) {
-			defer c.activeCall.Add(-2)
+		if atomic.CompareAndSwapInt32(&c.activeCall, x, x+2) {
+			defer atomic.AddInt32(&c.activeCall, -2)
 			break
 		}
 	}
@@ -350,7 +321,7 @@ func (c *UConn) Write(b []byte) (int, error) {
 		return 0, err
 	}
 
-	if !c.isHandshakeComplete.Load() {
+	if !c.handshakeComplete() {
 		return 0, alertInternalError
 	}
 
@@ -428,11 +399,11 @@ func (c *UConn) clientHandshake(ctx context.Context) (err error) {
 	}
 	// [uTLS section ends]
 
-	session, earlySecret, binderKey, err := c.loadSession(hello)
+	cacheKey, session, earlySecret, binderKey, err := c.loadSession(hello)
 	if err != nil {
 		return err
 	}
-	if session != nil {
+	if cacheKey != "" && session != nil {
 		defer func() {
 			// If we got a handshake failure when resuming a session, throw away
 			// the session ticket. See RFC 5077, Section 3.2.
@@ -441,21 +412,15 @@ func (c *UConn) clientHandshake(ctx context.Context) (err error) {
 			// does require servers to abort on invalid binders, so we need to
 			// delete tickets to recover from a corrupted PSK.
 			if err != nil {
-				if cacheKey := c.clientSessionCacheKey(); cacheKey != "" {
-					c.config.ClientSessionCache.Put(cacheKey, nil)
-				}
+				c.config.ClientSessionCache.Put(cacheKey, nil)
 			}
 		}()
 	}
 
-	cacheKey := c.clientSessionCacheKey()
-	if c.config.ClientSessionCache != nil {
-		cs, ok := c.config.ClientSessionCache.Get(cacheKey)
-		if !sessionIsAlreadySet && ok { // uTLS: do not overwrite already set session
-			err = c.SetSessionState(cs)
-			if err != nil {
-				return
-			}
+	if !sessionIsAlreadySet { // uTLS: do not overwrite already set session
+		err = c.SetSessionState(session)
+		if err != nil {
+			return
 		}
 	}
 
@@ -511,12 +476,7 @@ func (c *UConn) clientHandshake(ctx context.Context) (err error) {
 	// If we had a successful handshake and hs.session is different from
 	// the one already cached - cache a new one.
 	if cacheKey != "" && hs12.session != nil && session != hs12.session {
-		hs12cs := &ClientSessionState{
-			ticket:  hs12.ticket,
-			session: hs12.session,
-		}
-
-		c.config.ClientSessionCache.Put(cacheKey, hs12cs)
+		c.config.ClientSessionCache.Put(cacheKey, hs12.session)
 	}
 	return nil
 }
@@ -548,7 +508,7 @@ func (uconn *UConn) MarshalClientHello() error {
 			if paddingExt == nil {
 				paddingExt = pe
 			} else {
-				return errors.New("multiple padding extensions!")
+				return errors.New("Multiple padding extensions!")
 			}
 		}
 	}
@@ -616,7 +576,7 @@ func (uconn *UConn) GetOutKeystream(length int) ([]byte, error) {
 		// AEAD.Seal() does not mutate internal state, other ciphers might
 		return outCipher.Seal(nil, uconn.out.seq[:], zeros, nil), nil
 	}
-	return nil, errors.New("could not convert OutCipher to cipher.AEAD")
+	return nil, errors.New("Could not convert OutCipher to cipher.AEAD")
 }
 
 // SetTLSVers sets min and max TLS version in all appropriate places.
@@ -726,7 +686,7 @@ func MakeConnWithCompleteHandshake(tcpConn net.Conn, version uint16, cipherSuite
 		}
 
 		// skip the handshake states
-		tlsConn.isHandshakeComplete.Store(true)
+		atomic.StoreUint32(&tlsConn.handshakeStatus, 1)
 		tlsConn.cipherSuite = cipherSuite
 		tlsConn.haveVers = true
 		tlsConn.vers = version
